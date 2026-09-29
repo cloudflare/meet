@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { requestMediaPermissions } from '~/utils/requestMediaPermissions'
 import { Button } from './Button'
 
 export interface EnsurePermissionsProps {
@@ -61,18 +62,13 @@ export function EnsurePermissions(props: EnsurePermissionsProps) {
 					</p>
 					<Button
 						onClick={() => {
-							navigator.mediaDevices
-								.getUserMedia({
-									video: true,
-									audio: true,
-								})
-								.then((ms) => {
+							requestMediaPermissions((constraints) =>
+								navigator.mediaDevices.getUserMedia(constraints)
+							)
+								.then(({ micId, cameraId }) => {
 									if (mountedRef.current) setPermissionState('granted')
-									const micId = ms.getAudioTracks()[0].getSettings().deviceId
 									if (micId) props.onMicSelected(micId)
-									const cameraId = ms.getVideoTracks()[0].getSettings().deviceId
 									if (cameraId) props.onCameraSelected(cameraId)
-									ms.getTracks().forEach((t) => t.stop())
 								})
 								.catch(() => {
 									if (mountedRef.current) setPermissionState('denied')

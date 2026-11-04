@@ -94,7 +94,13 @@ type MessagesFromWorker =
 			welcome: Uint8Array
 			rtree: Uint8Array
 	  }
-	| { type: 'newSafetyNumber'; hash: Uint8Array }
+	| { type: 'newSafetyNumber'; hash: Uint8Array; members: string[] }
+
+export interface E2eeGroupState {
+	safetyNumber: string
+	/** IDs of every MLS group member covered by the safety number, including this user */
+	members: string[]
+}
 
 export class EncryptionWorker {
 	get worker(): Worker {
@@ -272,10 +278,12 @@ export class EncryptionWorker {
 		}
 	}
 
-	onNewSafetyNumber(handler: (safetyNumber: Uint8Array) => void) {
+	onNewSafetyNumber(
+		handler: (safetyNumber: Uint8Array, members: string[]) => void
+	) {
 		this.worker.addEventListener('message', (event) => {
 			if (event.data.type === 'newSafetyNumber') {
-				handler(event.data.hash)
+				handler(event.data.hash, event.data.members)
 			}
 		})
 	}
@@ -318,7 +326,7 @@ export function useE2EE({
 	partyTracks: PartyTracks
 	room: ReturnType<typeof useRoom>
 }) {
-	const [safetyNumber, setSafetyNumber] = useState<string>()
+	const [groupState, setGroupState] = useState<E2eeGroupState>()
 
 	const encryptionWorker = useMemo(
 		() =>
@@ -384,8 +392,11 @@ export function useE2EE({
 
 	useEffect(() => {
 		if (!joined) return
-		encryptionWorker.onNewSafetyNumber((buffer) =>
-			setSafetyNumber(safetyNumberToAlphanumeric(buffer, safetyNumberLength))
+		encryptionWorker.onNewSafetyNumber((buffer, members) =>
+			setGroupState({
+				safetyNumber: safetyNumberToAlphanumeric(buffer, safetyNumberLength),
+				members,
+			})
 		)
 		encryptionWorker.handleOutgoingEvents((data) => {
 			console.log('📬 sending e2eeMlsMessage to peers', data)
@@ -421,7 +432,7 @@ export function useE2EE({
 	}, [encryptionWorker, firstUser, joined, room.websocket, safetyNumberLength])
 
 	return {
-		e2eeSafetyNumber: enabled ? safetyNumber : undefined,
+		e2eeGroupState: enabled ? groupState : undefined,
 		onJoin,
 	}
 }

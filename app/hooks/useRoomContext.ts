@@ -1,6 +1,7 @@
 import { useOutletContext } from '@remix-run/react'
 import type { PartyTracks } from 'partytracks/client'
 import type { Dispatch, SetStateAction } from 'react'
+import type { E2eeStatus } from '~/hooks/useE2eeStatus'
 import type { UserMedia } from '~/hooks/useUserMedia'
 import type useRoom from './useRoom'
 import type { useRoomHistory } from './useRoomHistory'
@@ -25,7 +26,8 @@ export type RoomContextType = {
 	room: ReturnType<typeof useRoom>
 	roomHistory: ReturnType<typeof useRoomHistory>
 	simulcastEnabled: boolean
-	e2eeSafetyNumber?: string
+	/** E2EE group state, if E2EE is enabled and this user is in the MLS group */
+	e2ee?: E2eeStatus
 	e2eeOnJoin: (firstUser: boolean) => void
 	pushedTracks: {
 		video?: string

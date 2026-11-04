@@ -136,6 +136,23 @@ impl WorkerState {
         (state, key_package)
     }
 
+    /// Returns the safety number for the current epoch along with the UIDs of the group members it
+    /// covers. The UI must display these members rather than the server's participant list, since
+    /// only the MLS group is bound to the safety number
+    fn safety_number_update(&self) -> SafetyNumberUpdate {
+        let members = self
+            .mls_group
+            .as_ref()
+            .unwrap()
+            .members()
+            .map(|m| String::from_utf8_lossy(m.credential.serialized_content()).into_owned())
+            .collect();
+        SafetyNumberUpdate {
+            hash: self.safety_number(),
+            members,
+        }
+    }
+
     /// Derives the safety number for the current epoch with the MLS exporter. The protocol version
     /// is bound via the label and the displayed length via the context
     fn safety_number(&self) -> SafetyNumber {
@@ -184,7 +201,7 @@ impl WorkerState {
 
     /// Starts a new MLS group. This is called if this user is the first user in the room. Returns a
     /// new safety number and nothing else
-    fn start_group(&mut self) -> SafetyNumber {
+    fn start_group(&mut self) -> SafetyNumberUpdate {
         let config = MlsGroupCreateConfig::builder()
             .sender_ratchet_configuration(SenderRatchetConfiguration::new(
                 OUT_OF_ORDER_TOLERANCE,
@@ -210,7 +227,7 @@ impl WorkerState {
         self.users_alive_before_i_was_welcomed = Some(BTreeSet::new());
 
         // Return the new safety number
-        self.safety_number()
+        self.safety_number_update()
     }
 
     /// Join a group using the given MLS Welcome message
@@ -276,7 +293,7 @@ impl WorkerState {
 
         // Return the new safety number
         WorkerResponse {
-            new_safety_number: Some(self.safety_number()),
+            new_safety_number: Some(self.safety_number_update()),
             ..Default::default()
         }
     }
@@ -352,7 +369,7 @@ impl WorkerState {
         WorkerResponse {
             adds,
             remove,
-            new_safety_number: Some(self.safety_number()),
+            new_safety_number: Some(self.safety_number_update()),
             sender_id: Some(self.uid_as_str()),
             ..Default::default()
         }
@@ -453,7 +470,7 @@ impl WorkerState {
 
             // Return the new safety number
             WorkerResponse {
-                new_safety_number: Some(self.safety_number()),
+                new_safety_number: Some(self.safety_number_update()),
                 ..Default::default()
             }
         } else {
@@ -538,6 +555,13 @@ thread_local! {
     static STATE: Arc<Mutex<WorkerState>> = Arc::new(Mutex::new(WorkerState::default()));
 }
 
+/// The safety number of the current epoch along with the MLS group members it covers
+pub(crate) struct SafetyNumberUpdate {
+    pub(crate) hash: SafetyNumber,
+    /// The UIDs of every member of the group, including this user
+    pub(crate) members: Vec<String>,
+}
+
 /// A create, join, add, or remove operation might result in a welcome package, one or more MLS
 /// proposals, a new safety number, and/or a user key pacakge
 #[derive(Default)]
@@ -547,8 +571,8 @@ pub(crate) struct WorkerResponse {
     pub(crate) adds: Vec<(WelcomePackageOut, MlsMessageOut)>,
     /// Contains an optional Remove operation. This might remove many users at once
     pub(crate) remove: Option<MlsMessageOut>,
-    /// The new safety number for this group
-    pub(crate) new_safety_number: Option<SafetyNumber>,
+    /// The new safety number for this group, and the members it covers
+    pub(crate) new_safety_number: Option<SafetyNumberUpdate>,
     /// The key package for a joining user
     pub(crate) key_pkg: Option<KeyPackage>,
     /// The ID of this user if it's the DC
@@ -1042,6 +1066,55 @@ mod tests {
         assert_ne!(alice_sn, new_alice_sn);
         assert_eq!(new_alice_sn, state(&mut room, bob_idx).safety_number());
         assert_eq!(new_alice_sn, state(&mut room, charlie_idx).safety_number());
+    }
+
+    /// Returns the members reported alongside the safety number for the user at the given index
+    fn reported_members(room: &mut TestRoom, idx: usize) -> BTreeSet<String> {
+        state(room, idx)
+            .safety_number_update()
+            .members
+            .into_iter()
+            .collect()
+    }
+
+    fn uids(names: &[&str]) -> BTreeSet<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    // Tests that the members reported with the safety number track the MLS group, not the room
+    #[test]
+    fn safety_number_reports_members() {
+        let (mut room, alice_idx) = TestRoom::new(b"Alice");
+        assert_eq!(reported_members(&mut room, alice_idx), uids(&["Alice"]));
+
+        let bob_idx = room.user_joins(b"Bob");
+        room.user_catches_up(alice_idx);
+        room.all_users_catch_up();
+        let charlie_idx = room.user_joins(b"Charlie");
+        room.all_users_catch_up();
+        for idx in [alice_idx, bob_idx, charlie_idx] {
+            assert_eq!(
+                reported_members(&mut room, idx),
+                uids(&["Alice", "Bob", "Charlie"])
+            );
+        }
+
+        // Alice leaves and is removed from the group
+        room.user_leaves(alice_idx);
+        room.all_users_catch_up();
+        for idx in [bob_idx, charlie_idx] {
+            assert_eq!(reported_members(&mut room, idx), uids(&["Bob", "Charlie"]));
+        }
+
+        // Charlie stops responding, but the server never says they left, so no Remove is
+        // committed. They must still be reported as members, even though a malicious server could
+        // stop listing them as participants
+        room.user_dies(charlie_idx);
+        room.all_users_catch_up();
+        assert_eq!(
+            reported_members(&mut room, bob_idx),
+            uids(&["Bob", "Charlie"])
+        );
     }
 
     // Tests the case where multiple users join while one user is dead

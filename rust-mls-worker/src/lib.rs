@@ -95,7 +95,8 @@ pub async fn processEvent(event: Object) -> JsValue {
                 .expect("initialize event expects input field 'id'")
                 .as_string()
                 .expect("initialize field 'id' must be a string");
-            Some(mls_ops::new_state(&user_id))
+            let sn_length = extract_safety_number_length("initialize", &event);
+            Some(mls_ops::new_state(&user_id, sn_length))
         }
 
         "initializeAndCreateGroup" => {
@@ -103,7 +104,8 @@ pub async fn processEvent(event: Object) -> JsValue {
                 .expect("initializeAndCreateGroup event expects input field 'id'")
                 .as_string()
                 .expect("initializeAndCreateGroup field 'id' must be a string");
-            Some(mls_ops::new_state_and_start_group(&user_id))
+            let sn_length = extract_safety_number_length("initializeAndCreateGroup", &event);
+            Some(mls_ops::new_state_and_start_group(&user_id, sn_length))
         }
 
         "userJoined" => {
@@ -300,6 +302,18 @@ fn make_obj_and_save_buffers(name: &str, named_bytestrings: &[(&str, &[u8])]) ->
 /// Sets the `senderId` field in the given object to the given string
 fn set_sender_id(o: &Object, sender_id: &str) {
     obj_set(o, &"senderId".into(), &sender_id.into()).unwrap();
+}
+
+/// Given an initialization event `o`, returns its `safetyNumberLength` field
+fn extract_safety_number_length(event_name: &str, o: &Object) -> u16 {
+    let len = obj_get(o, &"safetyNumberLength".into())
+        .unwrap_or_else(|_| panic!("{event_name} must have field 'safetyNumberLength'"))
+        .as_f64()
+        .unwrap_or_else(|| panic!("{event_name} field 'safetyNumberLength' must be a number"));
+    if len.fract() != 0.0 || !(1.0..=u16::MAX as f64).contains(&len) {
+        panic!("{event_name} field 'safetyNumberLength' must be a positive integer, got {len}");
+    }
+    len as u16
 }
 
 /// Given an object `o` with field `field` of type `ArrayBuffer`, returns `o[field]` as a `Vec<u8>`

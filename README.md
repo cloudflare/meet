@@ -32,6 +32,7 @@ The following variables are optional:
 - `MAX_WEBCAM_BITRATE` (default `1200000`): the maximum bitrate for each meeting participant's webcam.
 - `MAX_WEBCAM_FRAMERATE` (default: `24`): the maximum number of frames per second for each meeting participant's webcam.
 - `MAX_WEBCAM_QUALITY_LEVEL` (default `1080`): the maximum resolution for each meeting participant's webcam, based on the smallest dimension (i.e. the default is 1080p).
+- `E2EE_SAFETY_NUMBER_LENGTH` (default `20`, min `16`, max `52`): when E2EE is enabled, the number of characters in the safety number that participants compare to verify the group. Safety numbers use [Crockford's base32](https://www.crockford.com/base32.html) alphabet (`0-9` and `A-Z` without `I`, `L`, `O`, `U`), so each character carries 5 bits and the default gives 100 bits. Shorter values make it easier for an attacker to find a colliding safety number and impersonate a participant.
 
 To customize these variables, place replacement values in `.dev.vars` (for development) and in the `[vars]` section of `wrangler.toml` (for the deployment).
 

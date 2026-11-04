@@ -29,6 +29,9 @@ const OUT_OF_ORDER_TOLERANCE: u32 = 500;
 const MAX_MESSAGE_SEQ_JUMP: u32 = 1000;
 
 type SafetyNumber = [u8; 32];
+/// MLS exporter label for the safety number. Bump the version whenever the safety number derivation
+/// or the E2EE protocol changes, so that incompatible clients never display matching safety numbers
+const SAFETY_NUMBER_LABEL: &str = "Cloudflare Meet safety number v2";
 
 /// Error incurred when attempting to decrypt an app message (in our case, an encrypted frame from
 /// a video/audio stream)
@@ -76,6 +79,9 @@ struct WorkerState {
 
     my_credential: Option<CredentialWithKey>,
     my_signing_keys: Option<SignatureKeyPair>,
+    /// The number of characters in the safety number displayed to the user. This is bound into the
+    /// derivation, so clients that disagree on the length show unrelated safety numbers
+    safety_number_length: u16,
     /// The UIDs of the users who were in the MLS group before this user was welcomed. These are
     /// precisely the ones who would be a designated committer before this user. This is only
     /// `Some` once this user has been welcomed
@@ -90,11 +96,14 @@ struct WorkerState {
 }
 
 impl WorkerState {
-    /// Initializes MLS state with a unique identifier for this user. Also returns the freshly
-    /// generated key package of this user.
+    /// Initializes MLS state with a unique identifier for this user and the length of the safety
+    /// number displayed to them. Also returns the freshly generated key package of this user.
     /// This MUST be executed before anything else in this module.
-    fn new(uid: Vec<u8>) -> (WorkerState, KeyPackageBundle) {
-        let mut state = WorkerState::default();
+    fn new(uid: Vec<u8>, safety_number_length: u16) -> (WorkerState, KeyPackageBundle) {
+        let mut state = WorkerState {
+            safety_number_length,
+            ..Default::default()
+        };
         let credential = BasicCredential::new(uid);
 
         // Generate new signing keys
@@ -127,17 +136,22 @@ impl WorkerState {
         (state, key_package)
     }
 
+    /// Derives the safety number for the current epoch with the MLS exporter. The protocol version
+    /// is bound via the label and the displayed length via the context
     fn safety_number(&self) -> SafetyNumber {
         let mut sn = SafetyNumber::default();
-        // Get the epoch authenticator and truncate it to 256 bits
-        sn.copy_from_slice(
-            &self
-                .mls_group
-                .as_ref()
-                .unwrap()
-                .epoch_authenticator()
-                .as_slice()[..32],
-        );
+        let exported = self
+            .mls_group
+            .as_ref()
+            .unwrap()
+            .export_secret(
+                self.mls_provider.crypto(),
+                SAFETY_NUMBER_LABEL,
+                &self.safety_number_length.to_be_bytes(),
+                sn.len(),
+            )
+            .expect("couldn't export safety number");
+        sn.copy_from_slice(&exported);
         sn
     }
 
@@ -542,13 +556,13 @@ pub(crate) struct WorkerResponse {
 }
 
 /// Acquires the global state, clears it, and generates a new identity
-pub fn new_state(uid: &str) -> WorkerResponse {
+pub fn new_state(uid: &str, safety_number_length: u16) -> WorkerResponse {
     let uid_bytes = uid.as_bytes().to_vec();
     STATE
         .try_with(|mutex| {
             // Create a new state and start a new group
             let mut state = mutex.lock().expect("couldn't lock mutex");
-            let (new_state, key_pkg) = WorkerState::new(uid_bytes);
+            let (new_state, key_pkg) = WorkerState::new(uid_bytes, safety_number_length);
 
             // Update the state
             *state = new_state;
@@ -563,13 +577,13 @@ pub fn new_state(uid: &str) -> WorkerResponse {
 }
 
 /// Acquires the global state, clears it, generates a new identity, and starts a new MLS group
-pub fn new_state_and_start_group(uid: &str) -> WorkerResponse {
+pub fn new_state_and_start_group(uid: &str, safety_number_length: u16) -> WorkerResponse {
     let uid_bytes = uid.as_bytes().to_vec();
     STATE
         .try_with(|mutex| {
             // Create a new state and start a new group
             let mut state = mutex.lock().expect("couldn't lock mutex");
-            let (mut new_state, _) = WorkerState::new(uid_bytes);
+            let (mut new_state, _) = WorkerState::new(uid_bytes, safety_number_length);
             let safety_number = new_state.start_group();
 
             // Update the state
@@ -692,6 +706,8 @@ mod tests {
     use openmls::prelude::tls_codec::Serialize;
     use rand::{seq::SliceRandom, Rng};
 
+    const TEST_SAFETY_NUMBER_LENGTH: u16 = 20;
+
     // Converts an MlsMessageOut to an MlsMessageIn
     fn msg_out_to_in(m: &MlsMessageOut) -> MlsMessageIn {
         let bytes = m.tls_serialize_detached().unwrap();
@@ -742,7 +758,7 @@ mod tests {
         /// Makes a new room whose first user has the given UID. Returns their user index (0)
         fn new(uid: &[u8]) -> (TestRoom, usize) {
             // Make a new state and start a group
-            let (mut state, _) = WorkerState::new(uid.to_vec());
+            let (mut state, _) = WorkerState::new(uid.to_vec(), TEST_SAFETY_NUMBER_LENGTH);
             state.start_group();
 
             (
@@ -791,7 +807,7 @@ mod tests {
         /// message queue
         fn user_joins(&mut self, uid: &[u8]) -> usize {
             // Make the new user. Their idx in the queue is the very end
-            let (state, kp) = WorkerState::new(uid.to_vec());
+            let (state, kp) = WorkerState::new(uid.to_vec(), TEST_SAFETY_NUMBER_LENGTH);
             // Add this state to the room states. The index into the queue is the very end
             self.states.push(Some((state, self.messages.len())));
             self.uids.push(uid.to_vec());
@@ -980,6 +996,52 @@ mod tests {
             room.all_users_catch_up();
             room.test_app_msg_encryption(&mut rng);
         }
+    }
+
+    /// Returns the state of the user at the given index. Panics if they've left
+    fn state(room: &mut TestRoom, idx: usize) -> &mut WorkerState {
+        &mut room.states[idx].as_mut().expect("user has left").0
+    }
+
+    // Tests that group members agree on the safety number, and that it's bound to the protocol
+    // version and the displayed length
+    #[test]
+    fn safety_number_binding() {
+        let (mut room, alice_idx) = TestRoom::new(b"Alice");
+        let bob_idx = room.user_joins(b"Bob");
+        room.all_users_catch_up();
+
+        // Everyone in the same epoch with the same length sees the same safety number
+        let alice_sn = state(&mut room, alice_idx).safety_number();
+        let bob_sn = state(&mut room, bob_idx).safety_number();
+        assert_eq!(alice_sn, bob_sn);
+
+        // The safety number is not the epoch authenticator, which is what older clients displayed
+        let epoch_authenticator = state(&mut room, alice_idx)
+            .mls_group
+            .as_ref()
+            .unwrap()
+            .epoch_authenticator()
+            .as_slice()[..32]
+            .to_vec();
+        assert_ne!(alice_sn.to_vec(), epoch_authenticator);
+
+        // A different displayed length gives an unrelated safety number
+        let bob = state(&mut room, bob_idx);
+        bob.safety_number_length = TEST_SAFETY_NUMBER_LENGTH + 1;
+        let bob_sn_other_length = bob.safety_number();
+        assert_ne!(alice_sn, bob_sn_other_length);
+        // Low-order bytes are what's displayed, so make sure those differ too
+        assert_ne!(alice_sn[16..], bob_sn_other_length[16..]);
+
+        // A new epoch gives a new safety number
+        let charlie_idx = room.user_joins(b"Charlie");
+        state(&mut room, bob_idx).safety_number_length = TEST_SAFETY_NUMBER_LENGTH;
+        room.all_users_catch_up();
+        let new_alice_sn = state(&mut room, alice_idx).safety_number();
+        assert_ne!(alice_sn, new_alice_sn);
+        assert_eq!(new_alice_sn, state(&mut room, bob_idx).safety_number());
+        assert_eq!(new_alice_sn, state(&mut room, charlie_idx).safety_number());
     }
 
     // Tests the case where multiple users join while one user is dead

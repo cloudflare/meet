@@ -16,7 +16,11 @@ type MessagesToE2eeWorker =
 	| { type: 'recvMlsMessage'; msg: Uint8Array }
 	| { type: 'encryptStream'; in: ReadableStream; out: WritableStream }
 	| { type: 'decryptStream'; in: ReadableStream; out: WritableStream }
-	| { type: 'initializeAndCreateGroup'; id: string }
+	| {
+			type: 'initializeAndCreateGroup'
+			id: string
+			safetyNumberLength: number
+	  }
 
 type MessagesFromE2eeWorker =
 	| {
@@ -104,9 +108,11 @@ export class EncryptionWorker {
 	_worker: Worker | null = null
 	safetyNumber: number = -1
 	id: string
+	safetyNumberLength: number
 
-	constructor(config: { id: string }) {
+	constructor(config: { id: string; safetyNumberLength: number }) {
 		this.id = config.id
+		this.safetyNumberLength = config.safetyNumberLength
 		this._worker = new Worker('/e2ee/worker.js')
 	}
 
@@ -115,11 +121,19 @@ export class EncryptionWorker {
 	}
 
 	initialize() {
-		this.worker.postMessage({ type: 'initialize', id: this.id })
+		this.worker.postMessage({
+			type: 'initialize',
+			id: this.id,
+			safetyNumberLength: this.safetyNumberLength,
+		})
 	}
 
 	initializeAndCreateGroup() {
-		this.worker.postMessage({ type: 'initializeAndCreateGroup', id: this.id })
+		this.worker.postMessage({
+			type: 'initializeAndCreateGroup',
+			id: this.id,
+			safetyNumberLength: this.safetyNumberLength,
+		})
 	}
 
 	userJoined(keyPkg: Uint8Array) {
@@ -297,8 +311,10 @@ export function useE2EE({
 	enabled = false,
 	room,
 	partyTracks,
+	safetyNumberLength = DEFAULT_SAFETY_NUMBER_LENGTH,
 }: {
 	enabled?: boolean
+	safetyNumberLength?: number
 	partyTracks: PartyTracks
 	room: ReturnType<typeof useRoom>
 }) {
@@ -308,8 +324,9 @@ export function useE2EE({
 		() =>
 			new EncryptionWorker({
 				id: room.websocket.id,
+				safetyNumberLength,
 			}),
-		[room.websocket.id]
+		[room.websocket.id, safetyNumberLength]
 	)
 
 	useEffect(() => {
@@ -368,7 +385,7 @@ export function useE2EE({
 	useEffect(() => {
 		if (!joined) return
 		encryptionWorker.onNewSafetyNumber((buffer) =>
-			setSafetyNumber(arrayBufferToDecimal(buffer))
+			setSafetyNumber(safetyNumberToAlphanumeric(buffer, safetyNumberLength))
 		)
 		encryptionWorker.handleOutgoingEvents((data) => {
 			console.log('📬 sending e2eeMlsMessage to peers', data)
@@ -401,7 +418,7 @@ export function useE2EE({
 		return () => {
 			room.websocket.removeEventListener('message', handler)
 		}
-	}, [encryptionWorker, firstUser, joined, room.websocket])
+	}, [encryptionWorker, firstUser, joined, room.websocket, safetyNumberLength])
 
 	return {
 		e2eeSafetyNumber: enabled ? safetyNumber : undefined,
@@ -409,10 +426,45 @@ export function useE2EE({
 	}
 }
 
-function arrayBufferToDecimal(buffer: ArrayBuffer) {
-	const byteArray = new Uint8Array(buffer) // Create a typed array from the ArrayBuffer
-	const hexArray = Array.from(byteArray, (byte) => {
-		return byte.toString(10).padStart(2, '0') // Convert each byte to a 2-digit hex string
-	})
-	return hexArray.join('') // Join all hex strings into a single string
+// Crockford's base32 alphabet, which omits the easily confused I, L, O and U
+const SAFETY_NUMBER_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+
+// Each base32 character carries 5 bits, so the default is 100 bits
+export const DEFAULT_SAFETY_NUMBER_LENGTH = 20
+// 80 bits, keeping collision search against the safety number infeasible
+export const MIN_SAFETY_NUMBER_LENGTH = 16
+// The safety number is derived from a 256-bit hash, and 52 base32 characters
+// are enough to encode all 256 bits. Anything longer would add no entropy.
+export const MAX_SAFETY_NUMBER_LENGTH = 52
+
+/**
+ * Encodes the hash as a Crockford base32 string of the given length. The hash
+ * is treated as a big-endian integer, and the least significant `length`
+ * base32 digits are returned, so every character depends on the whole hash.
+ */
+export function safetyNumberToAlphanumeric(
+	buffer: ArrayBuffer | Uint8Array,
+	length: number
+) {
+	if (
+		!Number.isInteger(length) ||
+		length < MIN_SAFETY_NUMBER_LENGTH ||
+		length > MAX_SAFETY_NUMBER_LENGTH
+	) {
+		throw new RangeError(
+			`Safety number length must be an integer between ${MIN_SAFETY_NUMBER_LENGTH} and ${MAX_SAFETY_NUMBER_LENGTH}, got ${length}`
+		)
+	}
+	const base = BigInt(SAFETY_NUMBER_ALPHABET.length)
+	let rest = new Uint8Array(buffer).reduce(
+		(acc, byte) => acc * BigInt(256) + BigInt(byte),
+		BigInt(0)
+	)
+	let result = ''
+	for (let i = 0; i < length; i++) {
+		const next = rest % base
+		rest = rest / base
+		result = SAFETY_NUMBER_ALPHABET[Number(next)] + result
+	}
+	return result
 }

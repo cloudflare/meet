@@ -5,6 +5,7 @@ export type Env = {
 	CALLS_API_URL?: string
 	DISABLE_LOBBY_ENFORCEMENT?: string
 	E2EE_ENABLED?: string
+	E2EE_SAFETY_NUMBER_LENGTH?: string
 	USER_DIRECTORY_URL?: string
 	FEEDBACK_URL?: string
 	FEEDBACK_QUEUE?: Queue

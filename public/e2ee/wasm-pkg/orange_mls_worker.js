@@ -222,12 +222,12 @@ let wasm_bindgen;
         return ret;
     };
 
-    function __wbg_adapter_30(arg0, arg1, arg2) {
-        wasm.closure450_externref_shim(arg0, arg1, arg2);
+    function __wbg_adapter_32(arg0, arg1, arg2) {
+        wasm.closure461_externref_shim(arg0, arg1, arg2);
     }
 
-    function __wbg_adapter_113(arg0, arg1, arg2, arg3) {
-        wasm.closure580_externref_shim(arg0, arg1, arg2, arg3);
+    function __wbg_adapter_121(arg0, arg1, arg2, arg3) {
+        wasm.closure583_externref_shim(arg0, arg1, arg2, arg3);
     }
 
     async function __wbg_load(module, imports) {
@@ -405,7 +405,7 @@ let wasm_bindgen;
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wbg_adapter_113(a, state0.b, arg0, arg1);
+                        return __wbg_adapter_121(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -555,8 +555,8 @@ let wasm_bindgen;
             const ret = false;
             return ret;
         };
-        imports.wbg.__wbindgen_closure_wrapper1795 = function(arg0, arg1, arg2) {
-            const ret = makeMutClosure(arg0, arg1, 451, __wbg_adapter_30);
+        imports.wbg.__wbindgen_closure_wrapper1781 = function(arg0, arg1, arg2) {
+            const ret = makeMutClosure(arg0, arg1, 462, __wbg_adapter_32);
             return ret;
         };
         imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {
@@ -596,6 +596,12 @@ let wasm_bindgen;
         imports.wbg.__wbindgen_memory = function() {
             const ret = wasm.memory;
             return ret;
+        };
+        imports.wbg.__wbindgen_number_get = function(arg0, arg1) {
+            const obj = arg1;
+            const ret = typeof(obj) === 'number' ? obj : undefined;
+            getDataViewMemory0().setFloat64(arg0 + 8 * 1, isLikeNone(ret) ? 0 : ret, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
         };
         imports.wbg.__wbindgen_string_get = function(arg0, arg1) {
             const obj = arg1;

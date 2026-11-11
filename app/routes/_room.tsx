@@ -17,13 +17,29 @@ import { useRoomHistory } from '~/hooks/useRoomHistory'
 import { useStablePojo } from '~/hooks/useStablePojo'
 import useUserMedia from '~/hooks/useUserMedia'
 import type { TrackObject } from '~/utils/callsTypes'
-import { useE2EE } from '~/utils/e2ee'
+import {
+	DEFAULT_SAFETY_NUMBER_LENGTH,
+	MAX_SAFETY_NUMBER_LENGTH,
+	MIN_SAFETY_NUMBER_LENGTH,
+	useE2EE,
+} from '~/utils/e2ee'
 import { getIceServers } from '~/utils/getIceServers.server'
 import { mode } from '~/utils/mode'
 
 function numberOrUndefined(value: unknown): number | undefined {
 	const num = Number(value)
 	return isNaN(num) ? undefined : num
+}
+
+function parseSafetyNumberLength(value: string | undefined): number {
+	const num = numberOrUndefined(value)
+	if (!value?.trim() || num === undefined || !Number.isInteger(num)) {
+		return DEFAULT_SAFETY_NUMBER_LENGTH
+	}
+	return Math.min(
+		Math.max(num, MIN_SAFETY_NUMBER_LENGTH),
+		MAX_SAFETY_NUMBER_LENGTH
+	)
 }
 
 function trackObjectToString(trackObject?: TrackObject) {
@@ -60,6 +76,9 @@ export const loader = async ({ context }: LoaderFunctionArgs) => {
 		maxApiHistory: numberOrUndefined(MAX_API_HISTORY),
 		simulcastEnabled: EXPERIMENTAL_SIMULCAST_ENABLED === 'true',
 		e2eeEnabled: context.env.E2EE_ENABLED === 'true',
+		e2eeSafetyNumberLength: parseSafetyNumberLength(
+			context.env.E2EE_SAFETY_NUMBER_LENGTH
+		),
 	})
 }
 
@@ -143,6 +162,7 @@ function Room({ room, userMedia }: RoomProps) {
 		maxApiHistory = 100,
 		simulcastEnabled,
 		e2eeEnabled,
+		e2eeSafetyNumberLength,
 	} = useLoaderData<typeof loader>()
 
 	const params = new URLSearchParams(apiExtraParams)
@@ -224,6 +244,7 @@ function Room({ room, userMedia }: RoomProps) {
 
 	const { e2eeSafetyNumber, onJoin } = useE2EE({
 		enabled: e2eeEnabled,
+		safetyNumberLength: e2eeSafetyNumberLength,
 		room,
 		partyTracks,
 	})

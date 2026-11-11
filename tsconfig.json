@@ -1,7 +1,7 @@
 {
 	"include": ["remix.env.d.ts", "**/*.ts", "**/*.tsx", "vitest.config.mts"],
 	"compilerOptions": {
-		"lib": ["DOM", "DOM.Iterable", "ES2019"],
+		"lib": ["DOM", "DOM.Iterable", "ES2019", "ES2020.BigInt"],
 		"types": ["@cloudflare/workers-types"],
 		"isolatedModules": true,
 		"esModuleInterop": true,

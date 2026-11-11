@@ -7,8 +7,8 @@ export function SafetyNumberToast(props: { safetyNumber: string }) {
 		<div className="flex items-center justify-center gap-2 text-sm">
 			<Toast.Title className="flex items-center gap-1 ">
 				<Icon type="LockClosedIcon" /> Safety Number:{' '}
-				<span className="tabular-nums tracking-wider font-semibold">
-					{props.safetyNumber}
+				<span className="font-mono tracking-wider font-semibold">
+					{props.safetyNumber.match(/.{1,4}/g)?.join(' ')}
 				</span>
 			</Toast.Title>
 			<Toast.Close className="flex items-center justify-center w-5 h-5 px-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-600">

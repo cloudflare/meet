@@ -10,6 +10,7 @@ import { EnsurePermissions } from '~/components/EnsurePermissions'
 import { Icon } from '~/components/Icon/Icon'
 import { Spinner } from '~/components/Spinner'
 
+import { useE2eeStatus } from '~/hooks/useE2eeStatus'
 import { usePeerConnection } from '~/hooks/usePeerConnection'
 import useRoom from '~/hooks/useRoom'
 import { type RoomContextType } from '~/hooks/useRoomContext'
@@ -242,12 +243,16 @@ function Room({ room, userMedia }: RoomProps) {
 	const [pinnedTileIds, setPinnedTileIds] = useState<string[]>([])
 	const [showDebugInfo, setShowDebugInfo] = useState(mode !== 'production')
 
-	const { e2eeSafetyNumber, onJoin } = useE2EE({
+	const { e2eeGroupState, onJoin } = useE2EE({
 		enabled: e2eeEnabled,
 		safetyNumberLength: e2eeSafetyNumberLength,
 		room,
 		partyTracks,
 	})
+	const e2ee = useE2eeStatus(e2eeGroupState, [
+		room.websocket.id,
+		...room.otherUsers.map((u) => u.id),
+	])
 
 	const context: RoomContextType = {
 		joined,
@@ -266,7 +271,7 @@ function Room({ room, userMedia }: RoomProps) {
 		feedbackEnabled,
 		partyTracks,
 		roomHistory,
-		e2eeSafetyNumber,
+		e2ee,
 		e2eeOnJoin: onJoin,
 		iceConnectionState,
 		room,

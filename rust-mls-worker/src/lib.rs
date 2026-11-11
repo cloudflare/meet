@@ -1,5 +1,5 @@
 use log::{info, Level};
-use mls_ops::{decrypt_msg, encrypt_msg, WelcomePackageOut, WorkerResponse};
+use mls_ops::{decrypt_msg, encrypt_msg, SafetyNumberUpdate, WelcomePackageOut, WorkerResponse};
 use openmls::prelude::tls_codec::Serialize;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -157,9 +157,12 @@ pub async fn processEvent(event: Object) -> JsValue {
         // The ordering of our objects is as follows: safety number, key package, (welcome, add),
         // (welcome, add), ..., remove
 
-        // Make the safety number object if a new safety number is given
-        if let Some(sn) = new_safety_number {
-            let (o, buffers) = make_obj_and_save_buffers("newSafetyNumber", &[("hash", &sn)]);
+        // Make the safety number object if a new safety number is given. It includes the MLS group
+        // members so that the UI can show who the safety number actually covers
+        if let Some(SafetyNumberUpdate { hash, members }) = new_safety_number {
+            let (o, buffers) = make_obj_and_save_buffers("newSafetyNumber", &[("hash", &hash)]);
+            let members: Array = members.into_iter().map(JsValue::from).collect();
+            obj_set(&o, &"members".into(), &members).unwrap();
 
             // Accumulate the object and buffers
             obj_list.push(&o);

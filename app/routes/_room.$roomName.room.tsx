@@ -87,7 +87,7 @@ function JoinedRoom({ bugReportsEnabled }: { bugReportsEnabled: boolean }) {
 		showDebugInfo,
 		pinnedTileIds,
 		room,
-		e2eeSafetyNumber,
+		e2ee,
 		e2eeOnJoin,
 	} = useRoomContext()
 	const {
@@ -155,14 +155,23 @@ function JoinedRoom({ bugReportsEnabled }: { bugReportsEnabled: boolean }) {
 	const gridGap = 12
 	const dispatchToast = useDispatchToast()
 
+	// Re-show the toast whenever the group changes, including when a hidden member is detected, even
+	// if the user dismissed it before
+	const safetyNumber = e2ee?.safetyNumber
+	const memberCount = e2ee?.members.length ?? 0
+	const hiddenMemberCount = e2ee?.hiddenMembers.length ?? 0
 	useEffect(() => {
-		if (e2eeSafetyNumber) {
-			dispatchToast(<SafetyNumberToast safetyNumber={e2eeSafetyNumber} />, {
-				duration: Infinity,
-				id: 'e2ee-safety-number',
-			})
+		if (safetyNumber) {
+			dispatchToast(
+				<SafetyNumberToast
+					safetyNumber={safetyNumber}
+					memberCount={memberCount}
+					hiddenMemberCount={hiddenMemberCount}
+				/>,
+				{ duration: Infinity, id: 'e2ee-safety-number' }
+			)
 		}
-	}, [e2eeSafetyNumber, dispatchToast])
+	}, [safetyNumber, memberCount, hiddenMemberCount, dispatchToast])
 
 	return (
 		<PullAudioTracks

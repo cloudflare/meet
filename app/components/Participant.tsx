@@ -95,8 +95,16 @@ export const Participant = forwardRef<
 		preferredRid
 	)
 	const audioTrack = isSelf ? userMedia.audioStreamTrack : pulledAudioTrack
+	// For your own screenshare there is no server echo to pull (Cloudflare
+	// Calls doesn't loop a track back to its sender), so pulledVideoTrack is
+	// always undefined and the tile renders empty. Use the local capture
+	// track for the self screenshare instead.
 	const videoTrack =
-		isSelf && !isScreenShare ? userMedia.videoStreamTrack : pulledVideoTrack
+		isSelf && !isScreenShare
+			? userMedia.videoStreamTrack
+			: isSelf && isScreenShare
+				? userMedia.screenShareVideoTrack
+				: pulledVideoTrack
 
 	useDeadPulledTrackMonitor(
 		user.tracks.video,

@@ -24,7 +24,12 @@ export const camera = getCamera({
 	broadcasting: true,
 	constraints: { width: { ideal: 1280 }, height: { ideal: 720 } },
 })
-export const screenshare = getScreenshare({ audio: false })
+// audio: true → pass an audio constraint to getDisplayMedia so Chrome/Edge
+// render the "Share tab audio" checkbox in the picker. This only affects
+// the picker UI; the resulting track is NOT pushed through PartyTracks
+// (nothing subscribes to screenshare.audio.broadcastTrack$), so no
+// additional encrypted stream is created and E2EE is unaffected.
+export const screenshare = getScreenshare({ audio: true })
 
 function useNoiseSuppression() {
 	const [suppressNoise, setSuppressNoise] = useLocalStorage(
